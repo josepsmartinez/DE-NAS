@@ -7,7 +7,8 @@ class DEBase():
     '''
     def __init__(self, cs=None, f=None, dimensions=None, pop_size=None, max_age=None,
                  mutation_factor=None, crossover_prob=None, strategy=None, budget=None,
-                 configspace=True, boundary_fix_type='random', **kwargs):
+                 configspace=True, boundary_fix_type='random', cat_encoding='bins',
+                 **kwargs):
         # Benchmark related variables
         self.cs = cs
         self.f = f
@@ -15,6 +16,19 @@ class DEBase():
             self.dimensions = len(self.cs.get_hyperparameters())
         else:
             self.dimensions = dimensions
+
+        self.cat_encoding = cat_encoding
+
+        if self.cs is not None:
+            self.hypers = self.cs.get_hyperparameters()
+            self.cat_hypers_idx = list(filter(
+                lambda idx: isinstance(
+                    self.hypers[idx],
+                    ConfigSpace.CategoricalHyperparameter),
+                range(len(self.hypers))))
+        else:
+            self.hypers = None
+            self.cat_hypers_idx = []
 
         # DE related variables
         self.pop_size = pop_size
@@ -54,7 +68,7 @@ class DEBase():
 
     def _sort_pop(self):
         pop_order = np.argsort(self.fitness)
-        np.random.shuffle(pop_order)
+        np.random.shuffle(pop_order)  # ?
         self.population = self.population[pop_order]
         self.fitness = self.fitness[pop_order]
         self.age = self.age[pop_order]
@@ -74,7 +88,18 @@ class DEBase():
         return self._min_pop_size
 
     def init_population(self, pop_size=10):
-        population = np.random.uniform(low=0.0, high=1.0, size=(pop_size, self.dimensions))
+        population = np.random.uniform(
+            low=0.0, high=1.0,
+            size=(pop_size, self.dimensions))
+
+        if self.cat_encoding == "one-hot" and len(self.cat_hypers_idx) > 0:
+            population = population.tolist()
+            for i in self.cat_hypers_idx:
+                hyper = self.hypers[i]
+                for p in range(pop_size):
+                    population[p][i] = np.random.uniform(low=0.0, high=1.0, size=(len(hyper.choices),))  # noqa:E501
+                    population[p][i] /= np.sum(population[p][i])
+            population = np.array(population, dtype=object)
         return population
 
     def sample_population(self, size=3, alt_pop=None):
@@ -114,13 +139,27 @@ class DEBase():
         -------
         array
         '''
-        violations = np.where((vector > 1) | (vector < 0))[0]
-        if len(violations) == 0:
-            return vector
-        if self.fix_type == 'random':
-            vector[violations] = np.random.uniform(low=0.0, high=1.0, size=len(violations))
-        else:
-            vector[violations] = np.clip(vector[violations], a_min=0, a_max=1)
+        if self.cat_encoding == "one-hot":
+            # fixes sign and normalizes one-hot vectors
+            for idx in self.cat_hypers_idx:
+                if (vector[idx] < 0).any():
+                    if self.fix_type == 'random':
+                        vector[idx] = np.random.uniform(low=0.0, high=1.0, size=vector[idx].shape[0])
+                    else:
+                        vector[idx] = np.clip(vector[idx], a_min=0, a_max=np.max(vector[idx]))
+                vector[idx] /= np.sum(vector[idx])
+
+        # computes violations for scalars
+        violations = []
+        for idx in range(vector.shape[0]):
+            if not (self.cat_encoding == "one-hot" and idx in self.cat_hypers_idx):
+                if vector[idx] > 1 or vector[idx] < 0:
+                    violations.append(idx)
+        if len(violations) > 0:
+            if self.fix_type == 'random':
+                vector[violations] = np.random.uniform(low=0.0, high=1.0, size=len(violations))
+            else:
+                vector[violations] = np.clip(vector[violations], a_min=0, a_max=1)
         return vector
 
     def vector_to_configspace(self, vector):
@@ -129,13 +168,16 @@ class DEBase():
         Works when self.cs is a ConfigSpace object and the input vector is in the domain [0, 1].
         '''
         new_config = self.cs.sample_configuration()
-        for i, hyper in enumerate(self.cs.get_hyperparameters()):
+        for i, hyper in enumerate(self.hypers):
             if type(hyper) == ConfigSpace.OrdinalHyperparameter:
                 ranges = np.arange(start=0, stop=1, step=1/len(hyper.sequence))
                 param_value = hyper.sequence[np.where((vector[i] < ranges) == False)[0][-1]]
             elif type(hyper) == ConfigSpace.CategoricalHyperparameter:
-                ranges = np.arange(start=0, stop=1, step=1/len(hyper.choices))
-                param_value = hyper.choices[np.where((vector[i] < ranges) == False)[0][-1]]
+                if self.cat_encoding == "bins":
+                    ranges = np.arange(start=0, stop=1, step=1/len(hyper.choices))
+                    param_value = hyper.choices[np.where((vector[i] < ranges) == False)[0][-1]]
+                elif self.cat_encoding == "one-hot":
+                    param_value = hyper.choices[np.argmax(vector[i])]
             else:  # handles UniformFloatHyperparameter & UniformIntegerHyperparameter
                 # rescaling continuous values
                 if hyper.log:
