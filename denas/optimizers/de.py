@@ -6,7 +6,7 @@ class DEBase():
     '''Base class for Differential Evolution
     '''
     def __init__(self, cs=None, f=None, dimensions=None, pop_size=None, max_age=None,
-                 mutation_factor=None, crossover_prob=None, strategy=None, budget=None,
+                 mutation_factor=None, crossover_prob=None, strategy=None,
                  configspace=True, boundary_fix_type='random', **kwargs):
         # Benchmark related variables
         self.cs = cs
@@ -22,7 +22,6 @@ class DEBase():
         self.mutation_factor = mutation_factor
         self.crossover_prob = crossover_prob
         self.strategy = strategy
-        self.budget = budget
         self.fix_type = boundary_fix_type
 
         # Miscellaneous
@@ -167,10 +166,10 @@ class DEBase():
 class DE(DEBase):
     def __init__(self, cs=None, f=None, dimensions=None, pop_size=20, max_age=np.inf,
                  mutation_factor=None, crossover_prob=None, strategy='rand1_bin',
-                 budget=None, encoding=False, dim_map=None, **kwargs):
+                 encoding=False, dim_map=None, **kwargs):
         super().__init__(cs=cs, f=f, dimensions=dimensions, pop_size=pop_size, max_age=max_age,
                          mutation_factor=mutation_factor, crossover_prob=crossover_prob,
-                         strategy=strategy, budget=budget, **kwargs)
+                         strategy=strategy, **kwargs)
         if self.strategy is not None:
             self.mutation_strategy = self.strategy.split('_')[0]
             self.crossover_strategy = self.strategy.split('_')[1]
@@ -192,7 +191,7 @@ class DE(DEBase):
             new_vector[i] = np.max(np.array(vector)[self.dim_map[i]])
         return new_vector
 
-    def f_objective(self, x, budget=None):
+    def f_objective(self, x):
         if self.f is None:
             raise NotImplementedError("An objective function needs to be passed.")
         if self.encoding:
@@ -202,13 +201,10 @@ class DE(DEBase):
             config = self.vector_to_configspace(x)
         else:
             config = x
-        if budget is not None:  # to be used when called by multi-fidelity based optimizers
-            fitness, cost = self.f(config, budget=budget)
-        else:
-            fitness, cost = self.f(config)
+        fitness, cost = self.f(config)
         return fitness, cost
 
-    def init_eval_pop(self, budget=None, eval=True):
+    def init_eval_pop(self, eval=True):
         '''Creates new population of 'pop_size' and evaluates individuals.
         '''
         self.population = self.init_population(self.pop_size)
@@ -224,17 +220,17 @@ class DE(DEBase):
 
         for i in range(self.pop_size):
             config = self.population[i]
-            self.fitness[i], cost = self.f_objective(config, budget)
+            self.fitness[i], cost = self.f_objective(config)
             if self.fitness[i] < self.inc_score:
                 self.inc_score = self.fitness[i]
                 self.inc_config = config
             traj.append(self.inc_score)
             runtime.append(cost)
-            history.append((config.tolist(), float(self.fitness[i]), float(budget or 0)))
+            history.append((config.tolist(), float(self.fitness[i]), 0))
 
         return traj, runtime, history
 
-    def eval_pop(self, population=None, budget=None):
+    def eval_pop(self, population=None):
         '''Evaluates a population
 
         If population=None, the current population's fitness will be evaluated
@@ -249,7 +245,7 @@ class DE(DEBase):
         costs = []
         ages = []
         for i in range(pop_size):
-            fitness, cost = self.f_objective(pop[i], budget)
+            fitness, cost = self.f_objective(pop[i])
             if population is None:
                 self.fitness[i] = fitness
             if fitness <= self.inc_score:
@@ -257,7 +253,7 @@ class DE(DEBase):
                 self.inc_config = pop[i]
             traj.append(self.inc_score)
             runtime.append(cost)
-            history.append((pop[i].tolist(), float(fitness), float(budget or 0)))
+            history.append((pop[i].tolist(), float(fitness), 0))
             fitnesses.append(fitness)
             costs.append(cost)
             ages.append(self.max_age)
@@ -363,7 +359,7 @@ class DE(DEBase):
             offspring = self.crossover_exp(target, mutant)
         return offspring
 
-    def selection(self, trials, budget=None):
+    def selection(self, trials):
         '''Carries out a parent-offspring competition given a set of trial population
         '''
         traj = []
@@ -371,7 +367,7 @@ class DE(DEBase):
         history = []
         for i in range(len(trials)):
             # evaluation of the newly created individuals
-            fitness, cost = self.f_objective(trials[i], budget)
+            fitness, cost = self.f_objective(trials[i])
             # selection -- competition between parent[i] -- child[i]
             ## equality is important for landscape exploration
             if fitness <= self.fitness[i]:
@@ -388,10 +384,10 @@ class DE(DEBase):
                 self.inc_config = self.population[i]
             traj.append(self.inc_score)
             runtime.append(cost)
-            history.append((trials[i].tolist(), float(fitness), float(budget or 0)))
+            history.append((trials[i].tolist(), float(fitness), 0))
         return traj, runtime, history
 
-    def evolve_generation(self, budget=None, best=None, alt_pop=None):
+    def evolve_generation(self, best=None, alt_pop=None):
         '''Performs a complete DE evolution: mutation -> crossover -> selection
         '''
         trials = []
@@ -402,7 +398,7 @@ class DE(DEBase):
             trial = self.boundary_check(trial)
             trials.append(trial)
         trials = np.array(trials)
-        traj, runtime, history = self.selection(trials, budget)
+        traj, runtime, history = self.selection(trials)
         return traj, runtime, history
 
     def sample_mutants(self, size, population=None):
@@ -423,20 +419,20 @@ class DE(DEBase):
 
         return mutants
 
-    def run(self, generations=1, verbose=False, budget=None, reset=True):
+    def run(self, generations=1, verbose=False, reset=True):
         # checking if a run exists
         if not hasattr(self, 'traj') or reset:
             self.reset()
             if verbose:
                 print("Initializing and evaluating new population...")
-            self.traj, self.runtime, self.history = self.init_eval_pop(budget=budget)
+            self.traj, self.runtime, self.history = self.init_eval_pop()
 
         if verbose:
             print("Running evolutionary search...")
         for i in range(generations):
             if verbose:
                 print("Generation {:<2}/{:<2} -- {:<0.7}".format(i+1, generations, self.inc_score))
-            traj, runtime, history = self.evolve_generation(budget=budget)
+            traj, runtime, history = self.evolve_generation()
             self.traj.extend(traj)
             self.runtime.extend(runtime)
             self.history.extend(history)
@@ -450,7 +446,7 @@ class DE(DEBase):
 class AsyncDE(DE):
     def __init__(self, cs=None, f=None, dimensions=None, pop_size=None, max_age=np.inf,
                  mutation_factor=None, crossover_prob=None, strategy='rand1_bin',
-                 budget=None, async_strategy='deferred', **kwargs):
+                 async_strategy='deferred', **kwargs):
         '''Extends DE to be Asynchronous with variations
 
         Parameters
@@ -469,7 +465,7 @@ class AsyncDE(DE):
         '''
         super().__init__(cs=cs, f=f, dimensions=dimensions, pop_size=pop_size, max_age=max_age,
                          mutation_factor=mutation_factor, crossover_prob=crossover_prob,
-                         strategy=strategy, budget=budget, **kwargs)
+                         strategy=strategy, **kwargs)
         if self.strategy is not None:
             self.mutation_strategy = self.strategy.split('_')[0]
             self.crossover_strategy = self.strategy.split('_')[1]
@@ -555,7 +551,7 @@ class AsyncDE(DE):
         selection = np.random.choice(np.arange(len(population)), size, replace=False)
         return population[selection]
 
-    def eval_pop(self, population=None, budget=None):
+    def eval_pop(self, population=None):
         pop = self.population if population is None else population
         pop_size = self.pop_size if population is None else len(pop)
         traj = []
@@ -565,7 +561,7 @@ class AsyncDE(DE):
         costs = []
         ages = []
         for i in range(pop_size):
-            fitness, cost = self.f_objective(pop[i], budget)
+            fitness, cost = self.f_objective(pop[i])
             if population is None:
                 self.fitness[i] = fitness
             if fitness <= self.inc_score:
@@ -573,7 +569,7 @@ class AsyncDE(DE):
                 self.inc_config = pop[i]
             traj.append(self.inc_score)
             runtime.append(cost)
-            history.append((pop[i].tolist(), float(fitness), float(budget or 0)))
+            history.append((pop[i].tolist(), float(fitness), 0))
             fitnesses.append(fitness)
             costs.append(cost)
             ages.append(self.max_age)
@@ -634,7 +630,7 @@ class AsyncDE(DE):
 
         return mutants
 
-    def evolve_generation(self, budget=None, best=None, alt_pop=None):
+    def evolve_generation(self, best=None, alt_pop=None):
         '''Performs a complete DE evolution, mutation -> crossover -> selection
         '''
         traj = []
@@ -652,7 +648,7 @@ class AsyncDE(DE):
             # selection takes place on a separate trial population only after
             # one iteration through the population has taken place
             trials = np.array(trials)
-            traj, runtime, history = self.selection(trials, budget)
+            traj, runtime, history = self.selection(trials)
             return traj, runtime, history
 
         elif self.async_strategy == 'immediate':
@@ -663,7 +659,7 @@ class AsyncDE(DE):
                 trial = self.boundary_check(trial)
                 # evaluating a single trial population for the i-th individual
                 de_traj, de_runtime, de_history, fitnesses, costs = \
-                    self.eval_pop(trial.reshape(1, self.dimensions), budget=budget)
+                    self.eval_pop(trial.reshape(1, self.dimensions))
                 # one-vs-one selection
                 ## can replace the i-the population despite not completing one iteration
                 if fitnesses[0] <= self.fitness[i]:
@@ -687,7 +683,7 @@ class AsyncDE(DE):
                 trial = self.boundary_check(trial)
                 # evaluating a single trial population for the i-th individual
                 de_traj, de_runtime, de_history, fitnesses, costs = \
-                    self.eval_pop(trial.reshape(1, self.dimensions), budget=budget)
+                    self.eval_pop(trial.reshape(1, self.dimensions))
                 # one-vs-one selection
                 ## can replace the i-the population despite not completing one iteration
                 if fitnesses[0] <= self.fitness[i]:
@@ -699,20 +695,20 @@ class AsyncDE(DE):
 
         return traj, runtime, history
 
-    def run(self, generations=1, verbose=False, budget=None, reset=True):
+    def run(self, generations=1, verbose=False, reset=True):
         # checking if a run exists
         if not hasattr(self, 'traj') or reset:
             self.reset()
             if verbose:
                 print("Initializing and evaluating new population...")
-            self.traj, self.runtime, self.history = self.init_eval_pop(budget=budget)
+            self.traj, self.runtime, self.history = self.init_eval_pop()
 
         if verbose:
             print("Running evolutionary search...")
         for i in range(generations):
             if verbose:
                 print("Generation {:<2}/{:<2} -- {:<0.7}".format(i+1, generations, self.inc_score))
-            traj, runtime, history = self.evolve_generation(budget=budget, best=self.inc_config)
+            traj, runtime, history = self.evolve_generation(best=self.inc_config)
             self.traj.extend(traj)
             self.runtime.extend(runtime)
             self.history.extend(history)
