@@ -122,20 +122,20 @@ class DEBase():
             vector[violations] = np.clip(vector[violations], a_min=0, a_max=1)
         return vector
 
-    def vectoridx_to_configparam(self, vector, i, hyper):
+    def vectorval_to_configparam(self, v, hyper):
         if type(hyper) == ConfigSpace.OrdinalHyperparameter:
             ranges = np.arange(start=0, stop=1, step=1/len(hyper.sequence))
-            return hyper.sequence[np.where((vector[i] < ranges) == False)[0][-1]]
+            return hyper.sequence[np.where((v < ranges) == False)[0][-1]]
         elif type(hyper) == ConfigSpace.CategoricalHyperparameter:
             ranges = np.arange(start=0, stop=1, step=1/len(hyper.choices))
-            return hyper.choices[np.where((vector[i] < ranges) == False)[0][-1]]
+            return hyper.choices[np.where((v < ranges) == False)[0][-1]]
         else:  # handles UniformFloatHyperparameter & UniformIntegerHyperparameter
             # rescaling continuous values
             if hyper.log:
                 log_range = np.log(hyper.upper) - np.log(hyper.lower)
-                return np.exp(np.log(hyper.lower) + vector[i] * log_range)
+                return np.exp(np.log(hyper.lower) + v * log_range)
             else:
-                value = hyper.lower + (hyper.upper - hyper.lower) * vector[i]
+                value = hyper.lower + (hyper.upper - hyper.lower) * v
             if type(hyper) == ConfigSpace.UniformIntegerHyperparameter:
                 return np.round(param_value).astype(int)   # converting to discrete (int)
 
@@ -146,7 +146,7 @@ class DEBase():
         '''
         new_config = self.cs.sample_configuration()
         for idx, hyper in enumerate(self.cs.get_hyperparameters()):
-            new_config[hyper.name] = self.vectoridx_to_configparam(vector, idx, hyper)
+            new_config[hyper.name] = self.vectorval_to_configparam(vector[idx], hyper)
         return new_config
 
     def f_objective(self):
