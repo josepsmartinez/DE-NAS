@@ -122,29 +122,31 @@ class DEBase():
             vector[violations] = np.clip(vector[violations], a_min=0, a_max=1)
         return vector
 
+    def vectoridx_to_configparam(self, vector, i, hyper):
+        if type(hyper) == ConfigSpace.OrdinalHyperparameter:
+            ranges = np.arange(start=0, stop=1, step=1/len(hyper.sequence))
+            return hyper.sequence[np.where((vector[i] < ranges) == False)[0][-1]]
+        elif type(hyper) == ConfigSpace.CategoricalHyperparameter:
+            ranges = np.arange(start=0, stop=1, step=1/len(hyper.choices))
+            return hyper.choices[np.where((vector[i] < ranges) == False)[0][-1]]
+        else:  # handles UniformFloatHyperparameter & UniformIntegerHyperparameter
+            # rescaling continuous values
+            if hyper.log:
+                log_range = np.log(hyper.upper) - np.log(hyper.lower)
+                return np.exp(np.log(hyper.lower) + vector[i] * log_range)
+            else:
+                value = hyper.lower + (hyper.upper - hyper.lower) * vector[i]
+            if type(hyper) == ConfigSpace.UniformIntegerHyperparameter:
+                return np.round(param_value).astype(int)   # converting to discrete (int)
+
     def vector_to_configspace(self, vector):
         '''Converts numpy array to ConfigSpace object
 
         Works when self.cs is a ConfigSpace object and the input vector is in the domain [0, 1].
         '''
         new_config = self.cs.sample_configuration()
-        for i, hyper in enumerate(self.cs.get_hyperparameters()):
-            if type(hyper) == ConfigSpace.OrdinalHyperparameter:
-                ranges = np.arange(start=0, stop=1, step=1/len(hyper.sequence))
-                param_value = hyper.sequence[np.where((vector[i] < ranges) == False)[0][-1]]
-            elif type(hyper) == ConfigSpace.CategoricalHyperparameter:
-                ranges = np.arange(start=0, stop=1, step=1/len(hyper.choices))
-                param_value = hyper.choices[np.where((vector[i] < ranges) == False)[0][-1]]
-            else:  # handles UniformFloatHyperparameter & UniformIntegerHyperparameter
-                # rescaling continuous values
-                if hyper.log:
-                    log_range = np.log(hyper.upper) - np.log(hyper.lower)
-                    param_value = np.exp(np.log(hyper.lower) + vector[i] * log_range)
-                else:
-                    param_value = hyper.lower + (hyper.upper - hyper.lower) * vector[i]
-                if type(hyper) == ConfigSpace.UniformIntegerHyperparameter:
-                    param_value = np.round(param_value).astype(int)   # converting to discrete (int)
-            new_config[hyper.name] = param_value
+        for idx, hyper in enumerate(self.cs.get_hyperparameters()):
+            new_config[hyper.name] = self.vectoridx_to_configparam(vector, idx, hyper)
         return new_config
 
     def f_objective(self):
