@@ -24,21 +24,21 @@ class CatDE(DE):
                 num_new_params += 1
         return dim_map, num_new_params
 
-    def vectoridx_to_configparam(self, vector, idx, param):
+    def vectorval_to_configparam(self, v, param):
         if isinstance(param, ConfigSpace.CategoricalHyperparameter):
-            return param.choices[
-                np.argmax(np.take(vector, self.dim_map[idx]))]
+            return param.choices[np.argmax(v)]
         else:
-            return super().vectoridx_to_configparam(vector, idx, param)
+            return super().vectorval_to_configparam(v, param)
+
+    def vectoridx_to_configparam(self, vector, idx, param):
+        return self.vectorval_to_configparam(
+            np.take(vector, self.dim_map[idx]), param)
 
     def vector_to_configspace(self, vector):
         '''Converts numpy array to ConfigSpace object
 
         Works when self.cs is a ConfigSpace object and the input vector is in the domain [0, 1].
         '''
-        new_vector = [
-            np.take(vector, idxs) for idxs in self.dim_map.values()]
-
         new_config = self.cs.sample_configuration()
         for idx, param in enumerate(self.params):
             new_config[param.name] = self.vectoridx_to_configparam(vector, idx, param)
