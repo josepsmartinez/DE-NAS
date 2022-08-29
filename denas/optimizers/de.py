@@ -135,7 +135,7 @@ class DEBase():
                 log_range = np.log(hyper.upper) - np.log(hyper.lower)
                 return np.exp(np.log(hyper.lower) + v * log_range)
             else:
-                value = hyper.lower + (hyper.upper - hyper.lower) * v
+                return hyper.lower + (hyper.upper - hyper.lower) * v
             if type(hyper) == ConfigSpace.UniformIntegerHyperparameter:
                 return np.round(param_value).astype(int)   # converting to discrete (int)
 
