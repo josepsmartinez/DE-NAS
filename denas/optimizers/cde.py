@@ -4,11 +4,11 @@ import ConfigSpace
 from denas.optimizers.de import DE
 
 class CatDE(DE):
-    def __init__(self, cs: ConfigSpace.ConfigurationSpace, **kwargs):
+    def __init__(self, cs: ConfigSpace.ConfigurationSpace, *a, **kw):
         self.params = cs.get_hyperparameters()
         self.dim_map, num_new_params = self._gen_dim_map()
         super().__init__(
-            cs=cs, dimensions=num_new_params, dim_map=self.dim_map, **kwargs)
+            cs=cs, dimensions=num_new_params, dim_map=self.dim_map, *a, **kw)
 
     def _gen_dim_map(self):
         dim_map = {}
@@ -36,8 +36,6 @@ class CatDE(DE):
 
     def vector_to_configspace(self, vector):
         '''Converts numpy array to ConfigSpace object
-
-        Works when self.cs is a ConfigSpace object and the input vector is in the domain [0, 1].
         '''
         new_config = self.cs.sample_configuration()
         for idx, param in enumerate(self.params):
